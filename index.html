@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BDS Scraper - Парсинг лотов</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+
+        header h1 {
+            font-size: 3em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        h2 {
+            color: white;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+        }
+
+        h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .stats-section, .parser-section {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            color: white;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .stat-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .stat-label {
+            font-size: 1em;
+            opacity: 0.9;
+        }
+
+        .form-container {
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .input-group small {
+            display: block;
+            margin-top: 5px;
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 10px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 7px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .results {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #f0f0f0;
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .result-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            border-left: 4px solid #667eea;
+        }
+
+        .result-card.success {
+            border-left-color: #28a745;
+        }
+
+        .result-card.warning {
+            border-left-color: #ffc107;
+        }
+
+        .result-card.error {
+            border-left-color: #dc3545;
+        }
+
+        .result-value {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .result-label {
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .lots-table {
+            margin-top: 15px;
+        }
+
+        .lot-row {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+            transition: transform 0.2s;
+        }
+
+        .lot-row:hover {
+            transform: translateX(5px);
+            background: #e9ecef;
+        }
+
+        .lot-name {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 1.1em;
+        }
+
+        .lot-details {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .lot-price {
+            color: #28a745;
+            font-weight: 600;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #dc3545;
+            margin-top: 20px;
+        }
+
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #28a745;
+            margin-top: 20px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .recent-lots {
+            margin-top: 20px;
+        }
+
+        .server-status {
+            background: #fff3cd;
+            color: #856404;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #ffc107;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 2em;
+            }
+
+            .stats-grid, .results-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .lot-details {
+                flex-direction: column;
+                gap: 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏍️ BDS Scraper</h1>
+            <p>Парсинг аукционных лотов с cemeco.ru</p>
+        </header>
+
+        <div class="stats-section" id="stats">
+            <h2>📊 Статистика базы данных</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="total-lots">-</div>
+                    <div class="stat-label">Всего лотов</div>
+                </div>
+            </div>
+            <div class="recent-lots" id="recent-lots">
+                <h3>Последние добавленные лоты</h3>
+                <div class="loading">Загрузка...</div>
+            </div>
+        </div>
+
+        <div class="parser-section">
+            <h2>🔍 Парсинг новых лотов</h2>
+            
+            <div class="server-status" id="server-status">
+                ⚠️ Сервер не запущен. Запустите: <code>python server.py</code>
+            </div>
+
+            <div class="form-container">
+                <form id="parse-form">
+                    <div class="input-group">
+                        <label for="url-input">URL страницы:</label>
+                        <input 
+                            type="text" 
+                            id="url-input" 
+                            placeholder="https://cemeco.ru/stat/ducati/desert-x/"
+                            value=""
+                        >
+                        <small>Пример: https://cemeco.ru/stat/yamaha/xt690z-tenere-700/</small>
+                    </div>
+                    <button type="submit" id="parse-btn">Запустить парсинг</button>
+                </form>
+            </div>
+
+            <div id="results" class="results hidden">
+                <h3>Результаты парсинга</h3>
+                <div class="results-grid">
+                    <div class="result-card">
+                        <div class="result-value" id="result-total">0</div>
+                        <div class="result-label">Найдено</div>
+                    </div>
+                    <div class="result-card success">
+                        <div class="result-value" id="result-new">0</div>
+                        <div class="result-label">Добавлено</div>
+                    </div>
+                    <div class="result-card warning">
+                        <div class="result-value" id="result-duplicates">0</div>
+                        <div class="result-label">Дубликаты</div>
+                    </div>
+                    <div class="result-card error">
+                        <div class="result-value" id="result-errors">0</div>
+                        <div class="result-label">Ошибки</div>
+                    </div>
+                </div>
+                <div id="lots-list" class="lots-list"></div>
+            </div>
+
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Парсинг в процессе... Это может занять несколько минут</p>
+            </div>
+
+            <div id="error" class="error-message hidden"></div>
+            <div id="success" class="success-message hidden"></div>
+        </div>
+    </div>
+
+    <script>
+        const SERVER_URL = 'http://localhost:8000';
+
+        // Проверка доступности сервера
+        async function checkServer() {
+            try {
+                const response = await fetch(`${SERVER_URL}/stats`);
+                if (response.ok) {
+                    document.getElementById('server-status').classList.add('hidden');
+                    return true;
+                }
+            } catch (error) {
+                // Сервер недоступен
+            }
+            return false;
+        }
+
+        // Загружаем статистику
+        async function loadStats() {
+            try {
+                const response = await fetch(`${SERVER_URL}/stats`);
+                if (!response.ok) throw new Error('Сервер не отвечает');
+                
+                const data = await response.json();
+                
+                document.getElementById('total-lots').textContent = data.total.toLocaleString('ru-RU');
+                
+                const recentLotsDiv = document.getElementById('recent-lots');
+                if (data.recent && data.recent.length > 0) {
+                    let html = '<h3>Последние добавленные лоты</h3><div class="lots-table">';
+                    data.recent.forEach(lot => {
+                        html += `
+                            <div class="lot-row">
+                                <div class="lot-name">${lot.name}</div>
+                                <div class="lot-details">
+                                    <span>${lot.date}</span>
+                                    <span>Год: ${lot.year}</span>
+                                    <span>Пробег: ${lot.mileage}</span>
+                                    <span class="lot-price">${lot.price}</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    recentLotsDiv.innerHTML = html;
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки статистики:', error);
+            }
+        }
+
+        // Обработка формы парсинга
+        document.getElementById('parse-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const url = document.getElementById('url-input').value.trim();
+            if (!url) {
+                showError('Введите URL');
+                return;
+            }
+
+            // Проверяем сервер
+            const serverOk = await checkServer();
+            if (!serverOk) {
+                showError('Сервер не запущен. Запустите: python server.py');
+                return;
+            }
+
+            // Показываем индикатор загрузки
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('results').classList.add('hidden');
+            document.getElementById('error').classList.add('hidden');
+            document.getElementById('success').classList.add('hidden');
+            document.getElementById('parse-btn').disabled = true;
+
+            try {
+                const response = await fetch(`${SERVER_URL}/parse`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url: url })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Ошибка парсинга');
+                }
+
+                // Показываем результаты
+                document.getElementById('result-total').textContent = data.total;
+                document.getElementById('result-new').textContent = data.new;
+                document.getElementById('result-duplicates').textContent = data.duplicates;
+                document.getElementById('result-errors').textContent = data.errors;
+
+                // Показываем список новых лотов
+                const lotsList = document.getElementById('lots-list');
+                if (data.lots && data.lots.length > 0) {
+                    let html = '<h4>Добавленные лоты:</h4><div class="lots-table">';
+                    data.lots.forEach(lot => {
+                        html += `
+                            <div class="lot-row">
+                                <div class="lot-name">${lot['Наименование']}</div>
+                                <div class="lot-details">
+                                    <span>${lot['Дата аукциона']}</span>
+                                    <span>Год: ${lot['Год']}</span>
+                                    <span>Пробег: ${lot['Пробег']}</span>
+                                    <span class="lot-price">${lot['Цена (₽)']}</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    lotsList.innerHTML = html;
+                } else {
+                    lotsList.innerHTML = '<p>Новых лотов не найдено (все уже в базе)</p>';
+                }
+
+                document.getElementById('results').classList.remove('hidden');
+                showSuccess(`Парсинг завершен! Найдено: ${data.total}, добавлено: ${data.new}, дубликатов: ${data.duplicates}`);
+                
+                // Обновляем статистику
+                loadStats();
+
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('parse-btn').disabled = false;
+            }
+        });
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+            setTimeout(() => errorDiv.classList.add('hidden'), 5000);
+        }
+
+        function showSuccess(message) {
+            const successDiv = document.getElementById('success');
+            successDiv.textContent = message;
+            successDiv.classList.remove('hidden');
+            setTimeout(() => successDiv.classList.add('hidden'), 5000);
+        }
+
+        // Проверяем сервер и загружаем статистику при загрузке страницы
+        checkServer().then(ok => {
+            if (ok) {
+                loadStats();
+            }
+        });
+    </script>
+</body>
+</html>
+
+

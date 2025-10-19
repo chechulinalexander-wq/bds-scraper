@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BDS Scraper - Парсинг лотов</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏍️ BDS Scraper</h1>
+            <p>Парсинг аукционных лотов с cemeco.ru</p>
+        </header>
+
+        <div class="stats-section" id="stats">
+            <h2>📊 Статистика базы данных</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="total-lots">-</div>
+                    <div class="stat-label">Всего лотов</div>
+                </div>
+            </div>
+            <div class="recent-lots" id="recent-lots">
+                <h3>Последние добавленные лоты</h3>
+                <div class="loading">Загрузка...</div>
+            </div>
+        </div>
+
+        <div class="parser-section">
+            <h2>🔍 Парсинг новых лотов</h2>
+            <div class="form-container">
+                <form id="parse-form">
+                    <div class="input-group">
+                        <label for="url-input">URL страницы:</label>
+                        <input 
+                            type="text" 
+                            id="url-input" 
+                            placeholder="https://cemeco.ru/stat/ducati/desert-x/"
+                            value=""
+                        >
+                        <small>Пример: https://cemeco.ru/stat/yamaha/xt690z-tenere-700/</small>
+                    </div>
+                    <button type="submit" id="parse-btn">Запустить парсинг</button>
+                </form>
+            </div>
+
+            <div id="results" class="results hidden">
+                <h3>Результаты парсинга</h3>
+                <div class="results-grid">
+                    <div class="result-card">
+                        <div class="result-value" id="result-total">0</div>
+                        <div class="result-label">Найдено</div>
+                    </div>
+                    <div class="result-card success">
+                        <div class="result-value" id="result-new">0</div>
+                        <div class="result-label">Добавлено</div>
+                    </div>
+                    <div class="result-card warning">
+                        <div class="result-value" id="result-duplicates">0</div>
+                        <div class="result-label">Дубликаты</div>
+                    </div>
+                    <div class="result-card error">
+                        <div class="result-value" id="result-errors">0</div>
+                        <div class="result-label">Ошибки</div>
+                    </div>
+                </div>
+                <div id="lots-list" class="lots-list"></div>
+            </div>
+
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Парсинг в процессе... Это может занять несколько минут</p>
+            </div>
+
+            <div id="error" class="error-message hidden"></div>
+        </div>
+    </div>
+
+    <script>
+        // Загружаем статистику при загрузке страницы
+        async function loadStats() {
+            try {
+                const response = await fetch('/stats');
+                const data = await response.json();
+                
+                document.getElementById('total-lots').textContent = data.total.toLocaleString('ru-RU');
+                
+                const recentLotsDiv = document.getElementById('recent-lots');
+                if (data.recent && data.recent.length > 0) {
+                    let html = '<h3>Последние добавленные лоты</h3><div class="lots-table">';
+                    data.recent.forEach(lot => {
+                        html += `
+                            <div class="lot-row">
+                                <div class="lot-name">${lot.name}</div>
+                                <div class="lot-details">
+                                    <span>${lot.date}</span>
+                                    <span>Год: ${lot.year}</span>
+                                    <span>Пробег: ${lot.mileage}</span>
+                                    <span class="lot-price">${lot.price}</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    recentLotsDiv.innerHTML = html;
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки статистики:', error);
+            }
+        }
+
+        // Обработка формы парсинга
+        document.getElementById('parse-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const url = document.getElementById('url-input').value.trim();
+            if (!url) {
+                showError('Введите URL');
+                return;
+            }
+
+            // Показываем индикатор загрузки
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('results').classList.add('hidden');
+            document.getElementById('error').classList.add('hidden');
+            document.getElementById('parse-btn').disabled = true;
+
+            try {
+                const response = await fetch('/parse', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url: url })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Ошибка парсинга');
+                }
+
+                // Показываем результаты
+                document.getElementById('result-total').textContent = data.total;
+                document.getElementById('result-new').textContent = data.new;
+                document.getElementById('result-duplicates').textContent = data.duplicates;
+                document.getElementById('result-errors').textContent = data.errors;
+
+                // Показываем список новых лотов
+                const lotsList = document.getElementById('lots-list');
+                if (data.lots && data.lots.length > 0) {
+                    let html = '<h4>Добавленные лоты:</h4><div class="lots-table">';
+                    data.lots.forEach(lot => {
+                        html += `
+                            <div class="lot-row">
+                                <div class="lot-name">${lot['Наименование']}</div>
+                                <div class="lot-details">
+                                    <span>${lot['Дата аукциона']}</span>
+                                    <span>Год: ${lot['Год']}</span>
+                                    <span>Пробег: ${lot['Пробег']}</span>
+                                    <span class="lot-price">${lot['Цена (₽)']}</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    lotsList.innerHTML = html;
+                } else {
+                    lotsList.innerHTML = '<p>Новых лотов не найдено (все уже в базе)</p>';
+                }
+
+                document.getElementById('results').classList.remove('hidden');
+                
+                // Обновляем статистику
+                loadStats();
+
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('parse-btn').disabled = false;
+            }
+        });
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+        }
+
+        // Загружаем статистику при загрузке страницы
+        loadStats();
+    </script>
+</body>
+</html>
+
+
