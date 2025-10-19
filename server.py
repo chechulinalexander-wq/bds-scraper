@@ -13,6 +13,10 @@ import sqlite3
 import time
 from urllib.parse import parse_qs
 import os
+from dotenv import load_dotenv
+
+# Загружаем переменные из .env файла
+load_dotenv()
 
 DB_FILE = 'lots_multi_20251017_142157.db'
 

@@ -1,5 +1,4 @@
 Set-Location "c:\CURSOR\BDS - Scraper"
-$env:OPENAI_API_KEY="sk-ваш-ключ-здесь"
 
 Write-Host ""
 Write-Host "======================================================================"

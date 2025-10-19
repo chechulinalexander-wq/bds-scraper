@@ -4,6 +4,7 @@ pandas
 openpyxl
 flask
 openai
+python-dotenv
 
 
 
