@@ -281,6 +281,108 @@
             margin-top: 20px;
         }
 
+        .input-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .recommendation {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #f0f0f0;
+        }
+
+        .recommendation-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .rec-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            color: white;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .rec-card.min {
+            background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);
+        }
+
+        .rec-card.optimal {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            transform: scale(1.05);
+        }
+
+        .rec-card.max {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+        }
+
+        .rec-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .rec-value {
+            font-size: 2em;
+            font-weight: bold;
+        }
+
+        .recommendation-details {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 12px;
+            border-left: 4px solid #667eea;
+        }
+
+        .recommendation-details h4 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .recommendation-details p {
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+
+        .recommendation-details .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .recommendation-details .stat-row:last-child {
+            border-bottom: none;
+        }
+
+        .recommendation-details .stat-label {
+            color: #666;
+        }
+
+        .recommendation-details .stat-value {
+            color: #333;
+            font-weight: 600;
+        }
+
+        .warning-box {
+            background: #fff3cd;
+            color: #856404;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #ffc107;
+            margin-top: 15px;
+        }
+
         .server-status {
             background: #fff3cd;
             color: #856404;
@@ -324,6 +426,93 @@
             <div class="recent-lots" id="recent-lots">
                 <h3>Последние добавленные лоты</h3>
                 <div class="loading">Загрузка...</div>
+            </div>
+        </div>
+
+        <div class="parser-section">
+            <h2>🤖 AI Рекомендация ставки</h2>
+            
+            <div class="form-container">
+                <form id="recommend-form">
+                    <div class="input-group">
+                        <label for="model-input">Модель мотоцикла:</label>
+                        <input 
+                            type="text" 
+                            id="model-input" 
+                            placeholder="Yamaha XT690Z TENERE 700"
+                            required
+                        >
+                    </div>
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label for="year-input">Год:</label>
+                            <input 
+                                type="number" 
+                                id="year-input" 
+                                placeholder="2025"
+                                min="1990"
+                                max="2030"
+                                required
+                            >
+                        </div>
+                        <div class="input-group">
+                            <label for="mileage-input">Пробег (км):</label>
+                            <input 
+                                type="text" 
+                                id="mileage-input" 
+                                placeholder="25"
+                                required
+                            >
+                        </div>
+                    </div>
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label for="rating-input">Оценка (1-10):</label>
+                            <input 
+                                type="number" 
+                                id="rating-input" 
+                                placeholder="7"
+                                min="1"
+                                max="10"
+                                required
+                            >
+                        </div>
+                        <div class="input-group">
+                            <label for="start-price-input">Стартовая цена (₽):</label>
+                            <input 
+                                type="text" 
+                                id="start-price-input" 
+                                placeholder="1 296 163"
+                                required
+                            >
+                        </div>
+                    </div>
+                    <button type="submit" id="recommend-btn">Получить рекомендацию AI</button>
+                </form>
+            </div>
+
+            <div id="recommendation" class="recommendation hidden">
+                <h3>💡 Рекомендация по ставке</h3>
+                <div class="recommendation-grid">
+                    <div class="rec-card min">
+                        <div class="rec-label">Минимум</div>
+                        <div class="rec-value" id="rec-min">-</div>
+                    </div>
+                    <div class="rec-card optimal">
+                        <div class="rec-label">Оптимум</div>
+                        <div class="rec-value" id="rec-optimal">-</div>
+                    </div>
+                    <div class="rec-card max">
+                        <div class="rec-label">Максимум</div>
+                        <div class="rec-value" id="rec-max">-</div>
+                    </div>
+                </div>
+                <div class="recommendation-details" id="rec-details"></div>
+            </div>
+
+            <div id="ai-loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>AI анализирует данные... Подождите ~10-15 секунд</p>
             </div>
         </div>
 
@@ -384,7 +573,7 @@
     </div>
 
     <script>
-        const SERVER_URL = 'http://localhost:8000';
+        const SERVER_URL = '';
 
         // Проверка доступности сервера
         async function checkServer() {
@@ -433,6 +622,79 @@
                 console.error('Ошибка загрузки статистики:', error);
             }
         }
+
+        // Обработка формы рекомендаций
+        document.getElementById('recommend-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const targetLot = {
+                'Наименование': document.getElementById('model-input').value.trim(),
+                'Год': parseInt(document.getElementById('year-input').value),
+                'Пробег': document.getElementById('mileage-input').value.trim() + ' км',
+                'Оценка': parseInt(document.getElementById('rating-input').value),
+                'Стартовая цена (₽)': document.getElementById('start-price-input').value.trim().replace(/\s/g, '') + ' ₽'
+            };
+
+            if (!targetLot['Наименование'] || !targetLot['Год'] || !targetLot['Оценка']) {
+                showError('Заполните все поля');
+                return;
+            }
+
+            // Показываем индикатор загрузки
+            document.getElementById('ai-loading').classList.remove('hidden');
+            document.getElementById('recommendation').classList.add('hidden');
+            document.getElementById('error').classList.add('hidden');
+            document.getElementById('recommend-btn').disabled = true;
+
+            try {
+                const response = await fetch(`${SERVER_URL}/recommend`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ target_lot: targetLot })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Ошибка получения рекомендации');
+                }
+
+                // Показываем результаты
+                document.getElementById('rec-min').textContent = data.recommended_bid_min.toLocaleString('ru-RU') + ' ₽';
+                document.getElementById('rec-optimal').textContent = data.recommended_bid_optimal.toLocaleString('ru-RU') + ' ₽';
+                document.getElementById('rec-max').textContent = data.recommended_bid_max.toLocaleString('ru-RU') + ' ₽';
+
+                // Формируем детали
+                let detailsHtml = '<h4>📊 Детали анализа</h4>';
+                detailsHtml += '<div class="stat-row"><span class="stat-label">Использовано аналогов:</span><span class="stat-value">' + data.comparables_used + '</span></div>';
+                detailsHtml += '<div class="stat-row"><span class="stat-label">Коэффициент:</span><span class="stat-value">' + data.chosen_coefficient.toFixed(3) + '</span></div>';
+                detailsHtml += '<div class="stat-row"><span class="stat-label">Диапазон коэффициентов:</span><span class="stat-value">[' + data.coefficient_band[0].toFixed(3) + ' - ' + data.coefficient_band[1].toFixed(3) + ']</span></div>';
+                detailsHtml += '<div class="stat-row"><span class="stat-label">Перцентиль:</span><span class="stat-value">' + data.percentile_used + '</span></div>';
+                
+                if (data.explanation) {
+                    detailsHtml += '<p style="margin-top: 15px; font-style: italic;">' + data.explanation + '</p>';
+                }
+
+                if (data.warnings && data.warnings.length > 0) {
+                    detailsHtml += '<div class="warning-box"><strong>⚠️ Предупреждения:</strong><ul style="margin: 10px 0 0 20px;">';
+                    data.warnings.forEach(w => {
+                        detailsHtml += '<li>' + w + '</li>';
+                    });
+                    detailsHtml += '</ul></div>';
+                }
+
+                document.getElementById('rec-details').innerHTML = detailsHtml;
+                document.getElementById('recommendation').classList.remove('hidden');
+
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                document.getElementById('ai-loading').classList.add('hidden');
+                document.getElementById('recommend-btn').disabled = false;
+            }
+        });
 
         // Обработка формы парсинга
         document.getElementById('parse-form').addEventListener('submit', async (e) => {
