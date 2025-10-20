@@ -14,20 +14,8 @@ import time
 from urllib.parse import parse_qs
 import os
 
-# Загружаем переменные из .env файла
-try:
-    from dotenv import load_dotenv
-    # Определяем путь к .env файлу относительно текущего скрипта
-    dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
-    load_dotenv(dotenv_path)
-    print(f"DEBUG: Загрузка .env из: {dotenv_path}", flush=True)
-    api_key = os.environ.get('OPENAI_API_KEY', 'НЕ НАЙДЕН')
-    if api_key != 'НЕ НАЙДЕН':
-        print(f"DEBUG: API ключ загружен (начало): {api_key[:20]}...", flush=True)
-    else:
-        print(f"DEBUG: API ключ НЕ НАЙДЕН в окружении!", flush=True)
-except ImportError:
-    print("Warning: python-dotenv не установлен. Используйте переменные окружения.", flush=True)
+# Импортируем движок рекомендаций
+from recommendation_engine import calculate_recommendation
 
 DB_FILE = 'lots.db'
 
@@ -305,158 +293,17 @@ def get_all_lots():
         traceback.print_exc()
         return []
 
-def get_openai_recommendation(target_lot, all_lots):
-    """Получает рекомендацию от OpenAI"""
+def get_recommendation(target_lot, all_lots):
+    """Получает рекомендацию от движка расчета"""
     try:
-        import openai
-        
-        # Получаем API ключ из переменной окружения
-        api_key = os.environ.get('OPENAI_API_KEY')
-        if not api_key:
-            return {'error': 'OPENAI_API_KEY не установлен. Установите: set OPENAI_API_KEY=ваш_ключ'}
-        
-        client = openai.OpenAI(api_key=api_key)
-        
-        # Формируем промпт согласно алгоритму
-        system_prompt = """Ты — аналитик аукционов, который рассчитывает РЕКОМЕНДУЕМУЮ СТАВКУ для покупки мотоцикла на аукционе.
-
-ВАЖНО: Рекомендуемая ставка должна быть НИЖЕ ожидаемой цены продажи, чтобы покупатель мог выиграть лот с прибылью.
-
-Используй **только** эти поля:
-* «Наименование»
-* «Год»
-* «Пробег»
-* «Оценка»
-* «Стартовая цена (₽)»
-* «Цена (₽)»
-
-Верни **один** JSON-объект строго по схеме:
-
-{
-  "recommended_bid_min": number,
-  "recommended_bid_optimal": number,
-  "recommended_bid_max": number,
-  "chosen_coefficient": number,
-  "coefficient_band": [number, number],
-  "percentile_used": "p25|p30|p40|p50|p60|p70|fallback",
-  "comparables_used": number,
-  "explanation": string,
-  "filters": {
-    "model_filter": string,
-    "year_range": [number, number],
-    "mileage_rule": string,
-    "rating_rule": string
-  },
-  "stats": {
-    "coef_mean": number,
-    "coef_median": number,
-    "coef_p25": number,
-    "coef_p30": number,
-    "coef_p40": number,
-    "coef_p50": number,
-    "coef_p60": number,
-    "coef_p70": number,
-    "coef_max": number
-  },
-  "warnings": [string]
-}
-
-Алгоритм:
-
-1. **Нормализация**: Преобразуй цены и пробег в числа
-2. **Фильтр по модели**: Оставь только строки с ТОЧНО такой же моделью
-3. **Фильтр по году/пробегу/оценке**: Целевой Год ±1; пробег ±50%; оценка ±1
-4. **Расчёт коэффициентов**: Для каждого аналога Коэффициент = Цена(₽) / Стартовая(₽)
-5. **Удаление выбросов**: Убери коэффициенты >1.5 (аномалии)
-6. **Статистика**: mean, median, p25, p30, p40, p50, p60, p70, max
-7. **Выбор коэффициента** (СБАЛАНСИРОВАННЫЙ ПОДХОД):
-   - Оценка ≥7, пробег ≤5000км: p60, диапазон [p50, p70]
-   - Оценка 6, пробег ≤5000км: p50 (медиана), диапазон [p40, p60]
-   - Оценка 5, пробег ≤5000км: p40, диапазон [p30, p50]
-   - Оценка 5-6, пробег 5-15тыс: p40, диапазон [p30, p50]
-   - Оценка <5 или пробег >15тыс: p30, диапазон [p25, p40]
-   - Если аналогов <5: фоллбэк [1.10, 1.20]
-8. **Расчёт ставок**: 
-   - recommended_bid_min = Стартовая × нижняя_граница_диапазона
-   - recommended_bid_optimal = Стартовая × chosen_coefficient
-   - recommended_bid_max = Стартовая × верхняя_граница_диапазона
-9. **Проверка**: recommended_bid_optimal должна быть близка к p40-p60 от реальных цен продажи аналогов
-10. **Возврат**: JSON с полем explanation
-
-Пояснение (explanation): 3-4 строки на русском, почему выбран этот коэффициент.
-
-КРИТИЧНО: 
-- recommended_bid_optimal должна давать шанс выиграть ~40-60% аналогичных лотов
-- recommended_bid_max должна давать шанс выиграть ~70-80% аналогичных лотов
-- recommended_bid_min - для очень консервативных покупателей (~20-30% шанс)"""
-
-        user_message = f"""TARGET_LOT:
-{json.dumps(target_lot, ensure_ascii=False, indent=2)}
-
-TABLE (все прошедшие аукционы):
-{json.dumps(all_lots[:1000], ensure_ascii=False)}
-
-Рассчитай оптимальную ставку."""
-
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
-            ],
-            temperature=0.1,
-            response_format={"type": "json_object"}
-        )
-        
-        result_text = response.choices[0].message.content
-        
-        # Парсим JSON из ответа
-        try:
-            # Сначала пробуем напрямую
-            result = json.loads(result_text)
-        except json.JSONDecodeError:
-            # Если не получилось, ищем JSON с учетом вложенности скобок
-            try:
-                start = result_text.find('{')
-                if start == -1:
-                    raise ValueError("JSON не найден в ответе")
-                
-                # Считаем скобки чтобы найти правильный конец JSON
-                brace_count = 0
-                end = start
-                for i in range(start, len(result_text)):
-                    if result_text[i] == '{':
-                        brace_count += 1
-                    elif result_text[i] == '}':
-                        brace_count -= 1
-                        if brace_count == 0:
-                            end = i + 1
-                            break
-                
-                if end > start:
-                    json_text = result_text[start:end]
-                    print(f"Извлечен JSON длиной {len(json_text)} символов")
-                    result = json.loads(json_text)
-                else:
-                    raise ValueError("Не удалось найти корректные границы JSON")
-                    
-            except Exception as e:
-                print(f"Ошибка парсинга JSON: {e}")
-                print(f"Ответ от AI (первые 500 символов):\n{result_text[:500]}")
-                if len(result_text) > 500:
-                    print(f"Ответ от AI (последние 200 символов):\n{result_text[-200:]}")
-                return {'error': f'Ошибка парсинга ответа AI: {str(e)}'}
-        
-        # Добавляем текстовое пояснение если его нет
-        if 'explanation' not in result:
-            result['explanation'] = "Анализ завершён на основе исторических данных аукционов."
-        
+        # Используем встроенный движок расчета (без AI)
+        result = calculate_recommendation(target_lot, all_lots)
         return result
-        
-    except ImportError:
-        return {'error': 'OpenAI библиотека не установлена. Установите: pip install openai'}
     except Exception as e:
-        return {'error': f'Ошибка OpenAI API: {str(e)}'}
+        print(f"Ошибка расчета рекомендации: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'error': f'Ошибка расчета: {str(e)}'}
 
 class RequestHandler(BaseHTTPRequestHandler):
     
@@ -522,8 +369,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 
                 print(f"Загружено {len(all_lots)} лотов из БД")
                 
-                # Получаем рекомендацию от OpenAI
-                recommendation = get_openai_recommendation(target_lot, all_lots)
+                # Получаем рекомендацию от движка расчета
+                recommendation = get_recommendation(target_lot, all_lots)
                 
                 if 'error' in recommendation:
                     self.send_response(500)
