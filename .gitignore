@@ -1,5 +1,11 @@
-# Environment variables
+# Секретные данные
 .env
+
+# Базы данных
+*.db
+
+# Excel файлы
+*.xlsx
 
 # Python
 __pycache__/
@@ -8,26 +14,13 @@ __pycache__/
 *.so
 .Python
 
-# Virtual Environment
-venv/
-env/
-ENV/
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
+# Временные файлы
+*.txt
+!requirements.txt
+!README*.txt
+.server_status
 *.log
 
+# IDE
+.vscode/
+.idea/

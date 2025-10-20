@@ -5,6 +5,7 @@ openpyxl
 flask
 openai
 python-dotenv
+python-dotenv
 
 
 

@@ -13,12 +13,23 @@ import sqlite3
 import time
 from urllib.parse import parse_qs
 import os
-from dotenv import load_dotenv
 
 # Загружаем переменные из .env файла
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    # Определяем путь к .env файлу относительно текущего скрипта
+    dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+    load_dotenv(dotenv_path)
+    print(f"DEBUG: Загрузка .env из: {dotenv_path}", flush=True)
+    api_key = os.environ.get('OPENAI_API_KEY', 'НЕ НАЙДЕН')
+    if api_key != 'НЕ НАЙДЕН':
+        print(f"DEBUG: API ключ загружен (начало): {api_key[:20]}...", flush=True)
+    else:
+        print(f"DEBUG: API ключ НЕ НАЙДЕН в окружении!", flush=True)
+except ImportError:
+    print("Warning: python-dotenv не установлен. Используйте переменные окружения.", flush=True)
 
-DB_FILE = 'lots_multi_20251017_142157.db'
+DB_FILE = 'lots.db'
 
 headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -53,13 +64,13 @@ def get_start_prices(lot_url):
     except Exception as e:
         return '', ''
 
-def check_duplicate(conn, auction_date, auction_house, lot_number):
+def check_duplicate(conn, date_auc, place, num_lot):
     """Проверяет существование записи в базе"""
     cursor = conn.cursor()
     cursor.execute('''
         SELECT COUNT(*) FROM lots 
-        WHERE "Дата аукциона" = ? AND "Аукционный дом" = ? AND "Номер лота" = ?
-    ''', (auction_date, auction_house, lot_number))
+        WHERE "Date-auc" = ? AND Place = ? AND "Num-lot" = ?
+    ''', (date_auc, place, num_lot))
     count = cursor.fetchone()[0]
     return count > 0
 
@@ -114,7 +125,7 @@ def parse_url(url):
                     brand_text = brand.text.strip() if brand else ''
                     model_text = model.text.strip() if model else ''
                     
-                    full_name = f"{brand_text} {model_text}".strip()
+                    name = f"{brand_text} {model_text}".strip()
                     
                     item_params = {}
                     param_table = item.find('table', class_='b-product-params')
@@ -128,77 +139,68 @@ def parse_url(url):
                                 item_params[key] = value
                     
                     crumbs = item.find_all('li', class_='b-product-crumbs__item')
-                    auction_date = crumbs[0].text.strip() if len(crumbs) > 0 else ''
-                    auction_house = crumbs[1].text.strip() if len(crumbs) > 1 else ''
-                    lot_number = crumbs[2].text.strip() if len(crumbs) > 2 else ''
+                    date_auc = crumbs[0].text.strip() if len(crumbs) > 0 else ''
+                    place = crumbs[1].text.strip() if len(crumbs) > 1 else ''
+                    num_lot = crumbs[2].text.strip() if len(crumbs) > 2 else ''
                     
-                    if check_duplicate(conn, auction_date, auction_house, lot_number):
+                    if check_duplicate(conn, date_auc, place, num_lot):
                         results['duplicates'] += 1
                         continue
                     
                     status_div = item.find('div', class_='b-product-status')
                     status = status_div.text.strip() if status_div else ''
                     
+                    # Цены из списка (ФИНАЛЬНЫЕ)
                     price_items = item.find_all('div', class_='b-product-price__item')
-                    price_yen = ''
-                    price_rub = ''
+                    real_prize_jap = ''
+                    real_prize_rub = ''
                     for price_item in price_items:
                         if '_yen' in price_item.get('class', []):
-                            price_yen = price_item.text.strip()
+                            real_prize_jap = price_item.text.strip()
                         elif '_rur' in price_item.get('class', []):
-                            price_rub = price_item.text.strip()
+                            real_prize_rub = price_item.text.strip()
                     
                     notice = item.find('div', class_='b-product-notice__text')
-                    auction_status = notice.text.strip() if notice else ''
+                    auc_stat = notice.text.strip() if notice else ''
                     
-                    start_price_yen = ''
+                    # Стартовые цены ИЗ КАРТОЧКИ ЛОТА
+                    start_price_jap = ''
                     start_price_rub = ''
                     if lot_url:
-                        start_price_yen, start_price_rub = get_start_prices(lot_url)
+                        start_price_jap, start_price_rub = get_start_prices(lot_url)
                         time.sleep(0.3)
                     
-                    lot_data = {
-                        'Наименование': full_name,
-                        'Дата аукциона': auction_date,
-                        'Аукционный дом': auction_house,
-                        'Номер лота': lot_number,
-                        'Год': item_params.get('Год', ''),
-                        'Пробег': item_params.get('Пробег', ''),
-                        'Объем': item_params.get('Объем', ''),
-                        'Оценка': item_params.get('Оценка', ''),
-                        'Статус аукциона': auction_status,
-                        'Статус': status,
-                        'Цена (¥)': price_yen,
-                        'Цена (₽)': price_rub,
-                        'Стартовая цена (¥)': start_price_yen,
-                        'Стартовая цена (₽)': start_price_rub,
-                        'URL карточки': lot_url
-                    }
-                    
+                    # Записываем в БД с НОВОЙ СТРУКТУРОЙ
                     cursor = conn.cursor()
                     cursor.execute('''
                         INSERT INTO lots VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
-                        lot_data['Наименование'],
-                        lot_data['Дата аукциона'],
-                        lot_data['Аукционный дом'],
-                        lot_data['Номер лота'],
-                        lot_data['Год'],
-                        lot_data['Пробег'],
-                        lot_data['Объем'],
-                        lot_data['Оценка'],
-                        lot_data['Статус аукциона'],
-                        lot_data['Статус'],
-                        lot_data['Цена (¥)'],
-                        lot_data['Цена (₽)'],
-                        lot_data['Стартовая цена (¥)'],
-                        lot_data['Стартовая цена (₽)'],
-                        lot_data['URL карточки']
+                        name,                               # Name
+                        date_auc,                          # Date-auc
+                        place,                             # Place
+                        num_lot,                           # Num-lot
+                        item_params.get('Год', ''),       # Year
+                        item_params.get('Пробег', ''),    # Probeg
+                        item_params.get('Объем', ''),     # Vol
+                        item_params.get('Оценка', ''),    # Ozenka
+                        status,                            # Status
+                        start_price_jap,                   # Start-price-jap
+                        start_price_rub,                   # Start-price-rub
+                        real_prize_jap,                    # Real-prize-jap
+                        real_prize_rub,                    # Real-prize-rub
+                        auc_stat,                          # Auc-stat
+                        lot_url                            # Url
                     ))
                     conn.commit()
                     
                     results['new'] += 1
-                    results['lots'].append(lot_data)
+                    results['lots'].append({
+                        'Наименование': name,
+                        'Дата аукциона': date_auc,
+                        'Год': item_params.get('Год', ''),
+                        'Пробег': item_params.get('Пробег', ''),
+                        'Цена (₽)': real_prize_rub
+                    })
                     
                 except Exception as e:
                     results['errors'] += 1
@@ -232,16 +234,16 @@ def get_stats():
         total_count = cursor.fetchone()[0]
         
         cursor.execute('''
-            SELECT "Наименование", COUNT(*) as cnt 
+            SELECT Name, COUNT(*) as cnt 
             FROM lots 
-            GROUP BY "Наименование" 
+            GROUP BY Name 
             ORDER BY cnt DESC 
             LIMIT 10
         ''')
         models_stats = cursor.fetchall()
         
         cursor.execute('''
-            SELECT "Наименование", "Дата аукциона", "Год", "Пробег", "Цена (₽)" 
+            SELECT Name, "Date-auc", Year, Probeg, "Real-prize-rub"
             FROM lots 
             ORDER BY rowid DESC 
             LIMIT 10
@@ -272,9 +274,14 @@ def get_all_lots():
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         
+        # Выбираем данные из новой структуры lots.db
         cursor.execute('''
-            SELECT "Наименование", "Год", "Пробег", "Оценка", "Стартовая цена (₽)", "Цена (₽)"
+            SELECT Name, Year, Probeg, Ozenka, "Start-price-rub", "Real-prize-rub"
             FROM lots
+            WHERE "Real-prize-rub" IS NOT NULL 
+            AND "Real-prize-rub" != ''
+            AND "Start-price-rub" IS NOT NULL
+            AND "Start-price-rub" != ''
         ''')
         
         rows = cursor.fetchall()
@@ -283,17 +290,19 @@ def get_all_lots():
         lots = []
         for row in rows:
             lots.append({
-                'Наименование': row[0],
-                'Год': row[1],
-                'Пробег': row[2],
-                'Оценка': row[3],
-                'Стартовая цена (₽)': row[4],
-                'Цена (₽)': row[5]
+                'Наименование': row[0] if row[0] else '',
+                'Год': row[1] if row[1] else '',
+                'Пробег': row[2] if row[2] else '',
+                'Оценка': row[3] if row[3] else '',
+                'Стартовая цена (₽)': row[4] if row[4] else '',
+                'Цена (₽)': row[5] if row[5] else ''
             })
         
         return lots
     except Exception as e:
         print(f"Ошибка получения лотов: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 def get_openai_recommendation(target_lot, all_lots):
@@ -309,20 +318,19 @@ def get_openai_recommendation(target_lot, all_lots):
         client = openai.OpenAI(api_key=api_key)
         
         # Формируем промпт согласно алгоритму
-        system_prompt = """Ты — аналитик аукционов, который рассчитывает оптимальную максимальную ставку на мотоцикл по историческим данным прошедших аукционов. Используй **только** эти поля:
+        system_prompt = """Ты — аналитик аукционов, который рассчитывает РЕКОМЕНДУЕМУЮ СТАВКУ для покупки мотоцикла на аукционе.
 
+ВАЖНО: Рекомендуемая ставка должна быть НИЖЕ ожидаемой цены продажи, чтобы покупатель мог выиграть лот с прибылью.
+
+Используй **только** эти поля:
 * «Наименование»
-* «Год» (или «Год выпуска»)
+* «Год»
 * «Пробег»
 * «Оценка»
 * «Стартовая цена (₽)»
 * «Цена (₽)»
 
-Никакие другие колонки игнорируй.
-
-Результат должен быть точным, воспроизводимым и прозрачным: укажи, какие аналоги использовал, какие коэффициенты получил и почему выбрал именно такую ставку.
-
-Верни **один** JSON-объект строго по схеме (всё должно быть внутри JSON, включая пояснение):
+Верни **один** JSON-объект строго по схеме:
 
 {
   "recommended_bid_min": number,
@@ -330,7 +338,7 @@ def get_openai_recommendation(target_lot, all_lots):
   "recommended_bid_max": number,
   "chosen_coefficient": number,
   "coefficient_band": [number, number],
-  "percentile_used": "median|p60|p70|p75|p80|p85|fallback",
+  "percentile_used": "p25|p30|p40|p50|p60|p70|fallback",
   "comparables_used": number,
   "explanation": string,
   "filters": {
@@ -342,39 +350,45 @@ def get_openai_recommendation(target_lot, all_lots):
   "stats": {
     "coef_mean": number,
     "coef_median": number,
+    "coef_p25": number,
+    "coef_p30": number,
+    "coef_p40": number,
+    "coef_p50": number,
     "coef_p60": number,
     "coef_p70": number,
-    "coef_p75": number,
-    "coef_p80": number,
-    "coef_p85": number,
     "coef_max": number
   },
   "warnings": [string]
 }
 
-В поле "explanation" добавь 4–6 строк краткого пояснения на русском (без лишних деталей, только смысл).
-
 Алгоритм:
 
 1. **Нормализация**: Преобразуй цены и пробег в числа
-2. **Фильтр по модели**: Оставь только строки с похожей моделью
-3. **Фильтр по году/пробегу/оценке**: Целевой Год ±1-2; пробег близкий; оценка >= target-1
+2. **Фильтр по модели**: Оставь только строки с ТОЧНО такой же моделью
+3. **Фильтр по году/пробегу/оценке**: Целевой Год ±1; пробег ±50%; оценка ±1
 4. **Расчёт коэффициентов**: Для каждого аналога Коэффициент = Цена(₽) / Стартовая(₽)
-5. **Удаление выбросов**: По IQR методу
-6. **Статистика**: mean, median, p60, p70, p75, p80, p85, max
-7. **Выбор коэффициента**:
-   - Оценка ≥7, пробег ≤2000км: p80, диапазон [p75, p85]
-   - Оценка =5, пробег ≤2000км: p65, диапазон [p60, p75]
-   - Пробег 2-7тыс, оценка ≥5: p70, диапазон [p60, p80]
-   - Если аналогов <8: фоллбэк [1.42, 1.50] для оценки 7, [1.24, 1.30] для оценки 5
-8. **Расчёт ставок**: Умножь стартовую цену на коэффициенты
-9. **Проверка адекватности**: Если max слишком низкий, подними
-10. **Возврат**: JSON с полем explanation внутри
+5. **Удаление выбросов**: Убери коэффициенты >1.5 (аномалии)
+6. **Статистика**: mean, median, p25, p30, p40, p50, p60, p70, max
+7. **Выбор коэффициента** (СБАЛАНСИРОВАННЫЙ ПОДХОД):
+   - Оценка ≥7, пробег ≤5000км: p60, диапазон [p50, p70]
+   - Оценка 6, пробег ≤5000км: p50 (медиана), диапазон [p40, p60]
+   - Оценка 5, пробег ≤5000км: p40, диапазон [p30, p50]
+   - Оценка 5-6, пробег 5-15тыс: p40, диапазон [p30, p50]
+   - Оценка <5 или пробег >15тыс: p30, диапазон [p25, p40]
+   - Если аналогов <5: фоллбэк [1.10, 1.20]
+8. **Расчёт ставок**: 
+   - recommended_bid_min = Стартовая × нижняя_граница_диапазона
+   - recommended_bid_optimal = Стартовая × chosen_coefficient
+   - recommended_bid_max = Стартовая × верхняя_граница_диапазона
+9. **Проверка**: recommended_bid_optimal должна быть близка к p40-p60 от реальных цен продажи аналогов
+10. **Возврат**: JSON с полем explanation
 
-Важно: 
-- Используй только указанные поля, не притягивай внешние данные
-- Весь ответ должен быть валидным JSON
-- Пояснение помести в поле "explanation" внутри JSON"""
+Пояснение (explanation): 3-4 строки на русском, почему выбран этот коэффициент.
+
+КРИТИЧНО: 
+- recommended_bid_optimal должна давать шанс выиграть ~40-60% аналогичных лотов
+- recommended_bid_max должна давать шанс выиграть ~70-80% аналогичных лотов
+- recommended_bid_min - для очень консервативных покупателей (~20-30% шанс)"""
 
         user_message = f"""TARGET_LOT:
 {json.dumps(target_lot, ensure_ascii=False, indent=2)}
@@ -611,20 +625,33 @@ class RequestHandler(BaseHTTPRequestHandler):
 def run_server(port=8000):
     server_address = ('', port)
     httpd = HTTPServer(server_address, RequestHandler)
-    print(f'\n{"="*70}')
-    print(f'BDS Scraper Server')
-    print(f'{"="*70}')
-    print(f'Сервер запущен на порту {port}')
-    print(f'Откройте в браузере: index.html')
-    print(f'База данных: {DB_FILE}')
-    print(f'{"="*70}\n')
-    print('Для остановки нажмите Ctrl+C\n')
+    
+    # Записываем статус запуска в файл
+    try:
+        with open('.server_status', 'w', encoding='utf-8') as f:
+            f.write(f'RUNNING|{port}|{os.getpid()}\n')
+    except:
+        pass
+    
+    print(f'\n{"="*70}', flush=True)
+    print(f'BDS Scraper Server', flush=True)
+    print(f'{"="*70}', flush=True)
+    print(f'Сервер запущен на порту {port}', flush=True)
+    print(f'Откройте в браузере: http://localhost:{port}', flush=True)
+    print(f'База данных: {DB_FILE}', flush=True)
+    print(f'{"="*70}\n', flush=True)
+    print('Для остановки нажмите Ctrl+C\n', flush=True)
     
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print('\n\nСервер остановлен')
+        print('\n\nСервер остановлен', flush=True)
         httpd.server_close()
+        # Удаляем статус файл
+        try:
+            os.remove('.server_status')
+        except:
+            pass
 
 if __name__ == '__main__':
     run_server()
