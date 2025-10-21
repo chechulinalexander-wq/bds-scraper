@@ -127,7 +127,7 @@ def test_edge_cases():
     print("ТЕСТ: Граничные случаи")
     print("="*70)
     
-    # Тест 1: Нет стартовой цены
+    # Тест 1: Нет стартовой цены БЕЗ аналогов
     test_1 = {
         'Наименование': 'Test Model',
         'Год': '2023',
@@ -137,11 +137,51 @@ def test_edge_cases():
     }
     
     result = calculate_recommendation(test_1, [])
-    print("Тест 1 - Нет стартовой цены:")
+    print("Тест 1 - Нет стартовой цены БЕЗ аналогов:")
     if 'error' in result:
         print(f"  ✓ Правильно обработана ошибка: {result['error']}")
     else:
         print(f"  ❌ Должна быть ошибка!")
+    print()
+    
+    # Тест 1b: Нет стартовой цены С аналогами
+    test_1b = {
+        'Наименование': 'Test Model X',
+        'Год': '2023',
+        'Пробег': '5000',
+        'Оценка': '6',
+        'Стартовая цена (₽)': ''
+    }
+    
+    test_history = [
+        {
+            'Наименование': 'Test Model X',
+            'Год': '2023',
+            'Пробег': '4500',
+            'Оценка': '6',
+            'Стартовая цена (₽)': '1000000',
+            'Цена (₽)': '1100000'
+        },
+        {
+            'Наименование': 'Test Model X',
+            'Год': '2023',
+            'Пробег': '5500',
+            'Оценка': '6',
+            'Стартовая цена (₽)': '1050000',
+            'Цена (₽)': '1150000'
+        }
+    ]
+    
+    result = calculate_recommendation(test_1b, test_history)
+    print("Тест 1b - Нет стартовой цены С аналогами (альтернативный алгоритм):")
+    if 'error' not in result:
+        print(f"  ✓ Использован альтернативный алгоритм: {result.get('alternative_algorithm', False)}")
+        print(f"  ✓ Рекомендация: {result['recommended_bid_min']:,.0f} - {result['recommended_bid_optimal']:,.0f} - {result['recommended_bid_max']:,.0f}")
+        print(f"  ✓ Аналогов: {result['comparables_used']}")
+        if result.get('warnings'):
+            print(f"  ✓ Предупреждений: {len(result['warnings'])}")
+    else:
+        print(f"  ❌ Ошибка: {result['error']}")
     print()
     
     # Тест 2: Нет аналогов

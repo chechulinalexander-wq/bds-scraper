@@ -254,3 +254,4 @@ BDS - Scraper/
 3. Запусти `test_recommendation_data.py`
 4. Проверь логи в консоли сервера
 
+

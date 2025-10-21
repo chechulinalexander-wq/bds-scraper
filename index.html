@@ -478,12 +478,11 @@
                             >
                         </div>
                         <div class="input-group">
-                            <label for="start-price-input">Стартовая цена (₽):</label>
+                            <label for="start-price-input">Стартовая цена (₽): <small>(опционально)</small></label>
                             <input 
                                 type="text" 
                                 id="start-price-input" 
-                                placeholder="1 296 163"
-                                required
+                                placeholder="1 296 163 (необязательно)"
                             >
                         </div>
                     </div>
@@ -627,16 +626,18 @@
         document.getElementById('recommend-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             
+            const startPriceValue = document.getElementById('start-price-input').value.trim();
+            
             const targetLot = {
                 'Наименование': document.getElementById('model-input').value.trim(),
                 'Год': parseInt(document.getElementById('year-input').value),
                 'Пробег': document.getElementById('mileage-input').value.trim() + ' км',
                 'Оценка': parseInt(document.getElementById('rating-input').value),
-                'Стартовая цена (₽)': document.getElementById('start-price-input').value.trim().replace(/\s/g, '') + ' ₽'
+                'Стартовая цена (₽)': startPriceValue ? startPriceValue.replace(/\s/g, '') + ' ₽' : ''
             };
 
             if (!targetLot['Наименование'] || !targetLot['Год'] || !targetLot['Оценка']) {
-                showError('Заполните все поля');
+                showError('Заполните обязательные поля (Модель, Год, Оценка)');
                 return;
             }
 
@@ -669,9 +670,19 @@
                 // Формируем детали
                 let detailsHtml = '<h4>📊 Детали анализа</h4>';
                 detailsHtml += '<div class="stat-row"><span class="stat-label">Использовано аналогов:</span><span class="stat-value">' + data.comparables_used + '</span></div>';
-                detailsHtml += '<div class="stat-row"><span class="stat-label">Коэффициент:</span><span class="stat-value">' + data.chosen_coefficient.toFixed(3) + '</span></div>';
-                detailsHtml += '<div class="stat-row"><span class="stat-label">Диапазон коэффициентов:</span><span class="stat-value">[' + data.coefficient_band[0].toFixed(3) + ' - ' + data.coefficient_band[1].toFixed(3) + ']</span></div>';
-                detailsHtml += '<div class="stat-row"><span class="stat-label">Перцентиль:</span><span class="stat-value">' + data.percentile_used + '</span></div>';
+                
+                // Проверяем, использован ли альтернативный алгоритм
+                if (data.alternative_algorithm) {
+                    detailsHtml += '<div class="stat-row"><span class="stat-label">Алгоритм:</span><span class="stat-value">Альтернативный (без стартовой цены)</span></div>';
+                    detailsHtml += '<div class="stat-row"><span class="stat-label">Перцентиль финальных цен:</span><span class="stat-value">' + data.percentile_used + '</span></div>';
+                    if (data.stats) {
+                        detailsHtml += '<div class="stat-row"><span class="stat-label">Медиана финальных цен:</span><span class="stat-value">' + data.stats.final_price_median.toLocaleString('ru-RU') + ' ₽</span></div>';
+                    }
+                } else {
+                    detailsHtml += '<div class="stat-row"><span class="stat-label">Коэффициент:</span><span class="stat-value">' + data.chosen_coefficient.toFixed(3) + '</span></div>';
+                    detailsHtml += '<div class="stat-row"><span class="stat-label">Диапазон коэффициентов:</span><span class="stat-value">[' + data.coefficient_band[0].toFixed(3) + ' - ' + data.coefficient_band[1].toFixed(3) + ']</span></div>';
+                    detailsHtml += '<div class="stat-row"><span class="stat-label">Перцентиль:</span><span class="stat-value">' + data.percentile_used + '</span></div>';
+                }
                 
                 if (data.explanation) {
                     detailsHtml += '<p style="margin-top: 15px; font-style: italic;">' + data.explanation + '</p>';

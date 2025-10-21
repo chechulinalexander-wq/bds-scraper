@@ -206,6 +206,175 @@ def generate_warnings(target_lot: Dict[str, Any], comparables: List[Dict[str, An
     return warnings
 
 
+def filter_comparables_by_final_price(target_lot: Dict[str, Any], all_lots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Фильтрует аналогичные лоты по тем же критериям, но учитывая только финальную цену
+    Используется когда стартовая цена целевого лота отсутствует
+    """
+    target_model = target_lot.get('Наименование', '').strip()
+    target_year = parse_int(target_lot.get('Год'))
+    target_mileage = parse_int(target_lot.get('Пробег'))
+    target_rating = parse_number(target_lot.get('Оценка'))
+    
+    comparables = []
+    
+    for lot in all_lots:
+        # Точное совпадение модели
+        lot_model = lot.get('Наименование', '').strip()
+        if lot_model != target_model:
+            continue
+        
+        # Парсим параметры лота
+        lot_year = parse_int(lot.get('Год'))
+        lot_mileage = parse_int(lot.get('Пробег'))
+        lot_rating = parse_number(lot.get('Оценка'))
+        
+        # Фильтр по году ±1
+        if target_year and lot_year:
+            if abs(lot_year - target_year) > 1:
+                continue
+        
+        # Фильтр по пробегу ±50%
+        if target_mileage and lot_mileage:
+            min_mileage = target_mileage * 0.5
+            max_mileage = target_mileage * 1.5
+            if lot_mileage < min_mileage or lot_mileage > max_mileage:
+                continue
+        
+        # Фильтр по оценке ±1
+        if target_rating and lot_rating:
+            if abs(lot_rating - target_rating) > 1:
+                continue
+        
+        # Проверяем наличие финальной цены
+        final_price = parse_number(lot.get('Цена (₽)'))
+        
+        if final_price and final_price > 0:
+            comparables.append({
+                'lot': lot,
+                'final_price': final_price
+            })
+    
+    return comparables
+
+
+def calculate_recommendation_without_start_price(target_lot: Dict[str, Any], all_lots: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Альтернативный алгоритм расчета когда стартовая цена отсутствует
+    Использует прямые финальные цены из аналогов
+    """
+    
+    # Фильтруем аналоги
+    comparables = filter_comparables_by_final_price(target_lot, all_lots)
+    
+    if not comparables:
+        return {
+            'error': 'Стартовая цена отсутствует, аналогов не найдено',
+            'recommended_bid_min': 0,
+            'recommended_bid_optimal': 0,
+            'recommended_bid_max': 0,
+            'warnings': ['Невозможно рассчитать рекомендацию без стартовой цены и аналогов']
+        }
+    
+    # Собираем финальные цены
+    final_prices = [c['final_price'] for c in comparables]
+    
+    if not final_prices:
+        return {
+            'error': 'Стартовая цена отсутствует, у аналогов нет финальных цен',
+            'recommended_bid_min': 0,
+            'recommended_bid_optimal': 0,
+            'recommended_bid_max': 0,
+            'warnings': ['У найденных аналогов отсутствуют финальные цены']
+        }
+    
+    # Рассчитываем статистику по финальным ценам
+    sorted_prices = sorted(final_prices)
+    n = len(sorted_prices)
+    
+    def percentile(p: int) -> float:
+        k = (n - 1) * p / 100.0
+        f = int(k)
+        c = f + 1 if f + 1 < n else f
+        d0 = sorted_prices[f]
+        d1 = sorted_prices[c]
+        return d0 + (d1 - d0) * (k - f)
+    
+    target_rating = parse_number(target_lot.get('Оценка'))
+    target_mileage = parse_int(target_lot.get('Пробег'))
+    
+    # Выбираем перцентиль на основе качества
+    if target_rating and target_rating >= 7 and target_mileage and target_mileage <= 5000:
+        recommended_bid = percentile(60)
+        band = [percentile(50), percentile(70)]
+        perc = "p60"
+    elif target_rating and target_rating >= 6:
+        recommended_bid = percentile(50)
+        band = [percentile(40), percentile(60)]
+        perc = "p50"
+    elif target_rating and target_rating >= 5:
+        recommended_bid = percentile(40)
+        band = [percentile(30), percentile(50)]
+        perc = "p40"
+    else:
+        recommended_bid = percentile(30)
+        band = [percentile(25), percentile(40)]
+        perc = "p30"
+    
+    explanation = (
+        f"Стартовая цена отсутствует. "
+        f"Рекомендация основана на финальных ценах {len(comparables)} аналогичных лотов. "
+        f"Медианная цена продажи: {percentile(50):,.0f} руб. "
+        f"Использован перцентиль {perc}."
+    )
+    
+    warnings = [
+        "ВНИМАНИЕ: Стартовая цена отсутствует - рекомендация основана только на финальных ценах аналогов",
+        "Точность оценки может быть ниже обычной"
+    ]
+    
+    if len(comparables) < 5:
+        warnings.append(f"Мало аналогов ({len(comparables)} шт.) - результат может быть неточным")
+    
+    if len(comparables) >= 5:
+        spread = max(final_prices) - min(final_prices)
+        if spread > percentile(50) * 0.3:
+            warnings.append(f"Высокая волатильность цен аналогов (разброс {spread:,.0f} руб)")
+    
+    if target_rating and target_rating < 4:
+        warnings.append("Низкая оценка состояния - возможны скрытые дефекты")
+    
+    if target_mileage and target_mileage > 50000:
+        warnings.append("Высокий пробег - учитывайте износ")
+    
+    target_year = parse_int(target_lot.get('Год'))
+    
+    return {
+        'recommended_bid_min': round(band[0], 2),
+        'recommended_bid_optimal': round(recommended_bid, 2),
+        'recommended_bid_max': round(band[1], 2),
+        'chosen_coefficient': None,
+        'coefficient_band': None,
+        'percentile_used': perc,
+        'comparables_used': len(comparables),
+        'explanation': explanation,
+        'filters': {
+            'model_filter': target_lot.get('Наименование', ''),
+            'year_range': [target_year - 1, target_year + 1] if target_year else None,
+            'mileage_rule': f"±50% от {target_mileage}" if target_mileage else "не применено",
+            'rating_rule': f"±1 от {target_rating}" if target_rating else "не применено"
+        },
+        'stats': {
+            'final_price_mean': round(sum(final_prices) / len(final_prices), 2),
+            'final_price_median': round(percentile(50), 2),
+            'final_price_min': round(min(final_prices), 2),
+            'final_price_max': round(max(final_prices), 2)
+        },
+        'warnings': warnings,
+        'alternative_algorithm': True
+    }
+
+
 def calculate_recommendation(target_lot: Dict[str, Any], all_lots: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Главная функция расчета рекомендации
@@ -221,13 +390,9 @@ def calculate_recommendation(target_lot: Dict[str, Any], all_lots: List[Dict[str
     # Парсим стартовую цену целевого лота
     start_price = parse_number(target_lot.get('Стартовая цена (₽)'))
     
+    # Если стартовая цена отсутствует - используем альтернативный алгоритм
     if not start_price or start_price <= 0:
-        return {
-            'error': 'Стартовая цена не указана или некорректна',
-            'recommended_bid_min': 0,
-            'recommended_bid_optimal': 0,
-            'recommended_bid_max': 0
-        }
+        return calculate_recommendation_without_start_price(target_lot, all_lots)
     
     # Фильтруем аналоги
     comparables = filter_comparables(target_lot, all_lots)
@@ -339,11 +504,11 @@ if __name__ == '__main__':
     print("ТЕСТ: Рекомендация ставки")
     print("="*70)
     print(f"Модель: {test_lot['Наименование']}")
-    print(f"Стартовая цена: {test_lot['Стартовая цена (₽)']} ₽")
+    print(f"Стартовая цена: {test_lot['Стартовая цена (₽)']}")
     print(f"\nРекомендуемые ставки:")
-    print(f"  Минимум:  {result['recommended_bid_min']:,.0f} ₽")
-    print(f"  Оптимум:  {result['recommended_bid_optimal']:,.0f} ₽")
-    print(f"  Максимум: {result['recommended_bid_max']:,.0f} ₽")
+    print(f"  Минимум:  {result['recommended_bid_min']:,.0f}")
+    print(f"  Оптимум:  {result['recommended_bid_optimal']:,.0f}")
+    print(f"  Максимум: {result['recommended_bid_max']:,.0f}")
     print(f"\nКоэффициент: {result['chosen_coefficient']}")
     print(f"Использовано аналогов: {result['comparables_used']}")
     print(f"\nПояснение:\n{result['explanation']}")
